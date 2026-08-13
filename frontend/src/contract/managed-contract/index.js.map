@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.js",
+  "sourceRoot": "../../../",
+  "sources": ["health-factor.compact"],
+  "names": [],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;EAAA;;;;;;;;;;MAUA,AAAA,aAGC;;;;;cAH4B,YAAoB;cAAE,MAAc;;;;;;;;;;;;;;;;;;;;;;;;;yCAApC,YAAoB,+BAAE,MAAc;;;;;;;;;+CAApC,YAAoB;+CAAE,MAAc;;;OAGhE;;;;GACA;EAdD;;;;;;;;;;;;;;;;;;;;;;;;;;IAQA;;;;;;;;;yEAAiC;;;;;;;GAMhC;EAJD,AAAA,gBAGC,4BAH4B,YAAoB,EAAE,MAAc;QAClD,GAA4B,QAAnC,MAAmC,UAA5B,YAAU,QAAV,GAA4B,IAAT,MAAI;IACpC;;;;;;;2HAAqB,MAAI;;yEAAhB;;GACV;;;;;;;;;;;;;;;;IALD;qCAAA;;;;;;;;;;;0GAAiC;KAAA;;;;;;;;;;"
+}
