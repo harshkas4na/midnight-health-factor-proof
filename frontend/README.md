@@ -1,32 +1,37 @@
-# React + TypeScript + Vite
+# Private Health-Factor Proof — frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Vite/React app for the [health-factor Compact contract](../README.md).
 
-Currently, two official plugins are available:
+## Run
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+yarn install
+yarn build && yarn preview
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`yarn dev` currently fails to render (see `vite.config.ts` — a wasm-bindgen pre-bundling issue
+in the ledger SDK, unrelated to this app's code). Use `yarn build && yarn preview` for local
+testing until that's resolved upstream.
+
+## Environment
+
+Copy `.env.example` to `.env` (or `.env.local`) and set:
+
+- `VITE_NETWORK_ID` — `undeployed` (local devnet), `preview`, or `preprod`. Defaults to
+  `undeployed`.
+- `VITE_CONTRACT_ADDRESS` — an already-deployed contract address to connect to instead of
+  deploying a fresh instance on every wallet connect.
+
+## Structure
+
+- `src/wallet.ts` — connects to the first Midnight-compatible wallet found under `window.midnight`
+  (the DApp Connector API's `InitialAPI`).
+- `src/providers.ts` — builds the browser-side provider set (wallet, midnight, proof,
+  public-data, zk-config, private-state) from the connected wallet's `ConnectedAPI`.
+- `src/contract/` — the compiled contract binding (`managed-contract/` is copied from
+  `../contracts/managed/health-factor/contract`) plus `index.ts` wiring it into a
+  `CompiledContract`.
+- `public/managed/health-factor/` — the compiled ZK artifacts (prover/verifier keys, zkir),
+  copied from `../contracts/managed/health-factor`, served statically for
+  `FetchZkConfigProvider`.
+- `src/App.tsx` — the UI: connect, deploy/find the contract, sliders, prove button, badge.

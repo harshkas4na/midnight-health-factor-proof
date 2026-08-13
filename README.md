@@ -1,137 +1,120 @@
-# Hello World Example
+# Private Health-Factor Proof
 
-The repository is intended as part of the tutorial flow for the hello-world example in the [Midnight documentation](https://docs.midnight.network/getting-started/hello-world). It does not operate as a complete repository without the accompanying documentation.
+Built for the **Midnight 1st Buildathon (AKINDO Wave 1)**.
 
-The below documentation will be provided here to "finish" this example.
+A lending position proves it's safely collateralized — "health factor ≥ 1.2" — without
+revealing the collateral amount, the debt amount, or the wallet's balance to anyone, including
+the protocol's own public on-chain state. Only a boolean (`isSolvent`) is ever disclosed.
 
-## Set up project
+This attacks Midnight's own stated use case, quoted verbatim from the buildathon brief:
 
-```bash
-git clone git@github.com:midnightntwrk/example-hello-world.git
-```
+> Finance – Prove solvency, transaction validity, or compliance requirements without disclosing
+> balances or counterparties.
 
-Install dependencies:
+## Why this design
+
+Aave-style lending protocols enforce a health-factor floor (collateral / debt ≥ some safety
+ratio), but the amounts backing that check are fully public on every EVM chain today — anyone
+can read a wallet's exact collateral and debt from the block explorer. This project shows the
+same risk check enforced by a smart contract, with the two numbers behind it never touching
+public state.
+
+## Architecture
+
+- **`contracts/health-factor.compact`** — a single Compact circuit, `proveSolvency(collateral,
+  debt)`. Both arguments are private circuit parameters (private by default in Compact — never
+  witnesses, never persisted state). The circuit cross-multiplies to avoid fractional math
+  (`collateral * 10 >= debt * 12`, equivalent to `HF >= 1.2`) and discloses only the resulting
+  boolean to the public ledger field `isSolvent`.
+- **`frontend/`** — a Vite/React app: connects to a Lace wallet via the Midnight DApp Connector
+  API, lets you set collateral/debt with sliders, and calls `proveSolvency` on click. The badge
+  renders from the on-chain `isSolvent` value — never from the local slider state.
+- **`src/test/health-factor.test.ts`** — end-to-end tests against a real deployed contract:
+  a safe position, an unsafe position, the exact-1.2 boundary (inclusive), and the zero-debt
+  edge case (always solvent).
+
+## Midnight integration
+
+- Compact contract, compiled with `compact compile` (toolchain 0.5.1 / compiler 0.31.1),
+  targeting `language_version 0.23`.
+- Deployed and tested via `@midnight-ntwrk/midnight-js-contracts` (`deployContract`,
+  `submitCallTx`) against both the local devnet (`yarn env:up` + `yarn test:local`) and the
+  Preview public testnet (`yarn test:preview`).
+- The frontend builds its own browser-side provider set (wallet, midnight, proof, public-data,
+  zk-config, private-state) directly from the Lace `ConnectedAPI`, following the pattern in
+  Midnight's own [leaderboard tutorial](https://docs.midnight.network/tutorials/leaderboard) —
+  see `frontend/src/providers.ts`.
+
+## Setup
+
+### Prerequisites
+
+- Node.js v22+
+- Docker (for the local devnet / proof server)
+- The `compact` CLI: `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh` then `compact update`
+- A Midnight-compatible wallet (Lace) for the frontend
+
+### Contract
 
 ```bash
 yarn install
-```
-
-## Create the contract file
-
-Create a new file named `hello-world.compact` in the `contracts` directory:
-
-```bash
-touch contracts/hello-world.compact
-```
-
-Open this file in VS Code:
-```bash
-code .
-```
-
-## Create the Compact Smart Contract
-
-```compact
-pragma language_version 0.23;
-
-export ledger message: Opaque<"string">;
-
-export circuit storeMessage(newMessage: Opaque<"string">): [] {
-  message = disclose(newMessage);
-}
-```
-- `pragma language_version` specifies which version of Compact your contract uses.
-- `ledger message` creates a state variable named `message` that stores a string value in the on-chain state. On-chain state is public and persistent on the blockchain.
-- `circuit storeMessage` is a Compact circuit (function) that defines the logic to modify on-chain state.
-- `newMessage: Opaque<"string">` is the input parameter. *Circuit parameters are always private by default.* The `disclose()` function marks the private value as safe to store publicly. Without it, trying to assign `newMessage` directly to the ledger returns a compiler error.
-
-## Compile the contract
-
-Compiling transforms your Compact code into zero-knowledge circuits, generates cryptographic keys, 
-and creates TypeScript APIs and a JavaScript implementation for the contract to be used by DApps. 
-
-Run the compiler from the contracts folder:
-
-```bash
-compact compile hello-world.compact managed/hello-world
-```
-
-You should see the following output:
-
-```
-Compiling 1 circuits:
-  circuit "storeMessage" (k=6, rows=26)
-```
-
-The compilation process will:
-1. Parse and validate your Compact code.
-2. Generate zero-knowledge circuits from your logic.
-3. Create proving and verifying keys for the circuits.
-4. Generate the TypeScript API and JavaScript implementation for the contract.
-
-When compilation completes, you'll see a new directory structure:
-
-```
-contracts/
-├── managed/
-|   └── hello-world/
-|        ├── compiler/
-|        ├── contract/
-|        ├── keys/
-|        └── zkir/
-└── hello-world.compact
-└── index.ts
-```
-
-Here's what each directory contains:
-
-- **contract/**: The compiled contract artifacts, which includes the JavaScript implementation and type definitions.
-- **keys/**: Cryptographic proving and verifying keys that enable zero-knowledge proofs.
-- **zkir/**: Zero-Knowledge Intermediate Representation—the bridge between Compact and the ZK backend.
-- **compiler/**: Compiler-generated JSON output that other tools can use to understand the contract structure.
-
-## Deploy Contract to Local Devnet
-Now that your contract is compiled, it needs to be deployed to the blockchain so that you can interact with it.
-
-Be sure the Docker engine is running and in a *separate terminal* start the proof server from the project root:
-```bash
-yarn env:up
-```
-
-Leave the proof server running for the following steps.
-
-To deploy the contract, you'll need a wallet. The local devnet package comes with 3 pre-funded wallets.
-
-
-Run the deployment script:
-```bash
-yarn test:local
-```
-
-The test script will begin to show output from your local devnet and will progress the contract deployment and interaction programatically:
-
-```
-[12:46:12.694] INFO (22064): Wallet sync complete after 23 emissions
-[12:46:12.703] INFO (22064): Providers initialized. Ready to test
-[12:46:12.707] INFO (22064): Creating private state...
-[12:46:32.347] INFO (22064): Setting the contract address...
-[12:46:32.347] INFO (22064): Contract deployed at: bba6579743ae23b44301d4a9f8df30dbd5244d63a59d8fbc2c9fc7ea521a04f8
- ✓ src/test/hw.test.ts (2 tests) 39112ms
-   ✓ Hello World Contract > Deploys the contract  19649ms
-   ✓ Hello World Contract > Stores Hello World!   18184ms
-```
-
-Stop the Docker container:
-```bash
+yarn compile              # compiles contracts/health-factor.compact
+yarn env:up                # starts the local devnet + proof server (Docker)
+yarn test:local             # deploys + runs the 4 end-to-end tests
 yarn env:down
 ```
 
-Hello World! You are now ready to explore [Tutorials](https://docs.midnight.network/category/tutorials) for more detailed instructions on building DApps on Midnight!
+To run against the Preview testnet instead: fund a wallet via the
+[Preview faucet](https://midnight-tmnight-preview.nethermind.dev/) (human-facing page, no
+programmatic drip), copy `.env.preview.example` to `.env.preview` with that wallet's seed, then:
 
-## Deploy Contract to Live Testnet
+```bash
+yarn proof:up
+yarn test:preview
+```
 
-To run this test script on Preview or Preprod:
-1. Generate a wallet on the given network and fund it manually via the network's faucet page — [Preview](https://midnight-tmnight-preview.nethermind.dev/) or [Preprod](https://midnight-tmnight-preprod.nethermind.dev/). The faucet is a human-facing web page (no programmatic drip endpoint), so the test suite assumes the seed you supply is already funded with tNIGHT. tDUST can be delegated in 1AM or Lace Carbon (coming soon). See [Environments and endpoints](https://docs.midnight.network/relnotes/network) for reference.
-1. Create `.env.<network>` and populate it based on the information in `.env.<network>.example` in this repository.
-1. Start the proof server: `yarn proof:up`
-1. Start the test: `yarn test:<network>` -- the wallet will sync to the network and advance the test suite programmatically.
+### Frontend
+
+```bash
+cd frontend
+yarn install
+yarn build && yarn preview   # production build + local static server
+```
+
+`yarn dev` currently fails to render — a wasm-bindgen dependency pre-bundling issue in Vite's
+dev server unrelated to the contract logic, documented in `frontend/vite.config.ts`. The
+production build (what's actually deployed) is unaffected.
+
+Set `VITE_CONTRACT_ADDRESS` in `frontend/.env` to skip redeploying and connect to an existing
+contract instance; otherwise the app deploys a fresh instance on wallet connect.
+
+## How judges can test this
+
+1. `yarn install && yarn compile` — confirms the Compact contract compiles (the buildathon's
+   Technical Gate).
+2. `yarn env:up && yarn test:local` — deploys the contract and runs all 4 tests on-chain against
+   a local devnet, no external dependencies beyond Docker.
+3. `cd frontend && yarn install && yarn build && yarn preview` — open the local preview URL,
+   connect a Lace wallet, move the sliders, click "Prove Solvency," and watch the badge flip
+   between SAFE and NOT SAFE based on the on-chain disclosed result.
+
+## Progress during Wave 1
+
+Built in a single focused session on 2026-08-13 (Wave 1's opening day): toolchain install,
+`health-factor.compact` written and compiled, all 4 on-chain tests passing on local devnet, the
+Vite/React frontend with real Lace wallet integration, and this repository set up as a public,
+Apache 2.0-licensed, `midnightntwrk`-tagged project. Remaining before the Wave 1 deadline: public
+testnet deployment, demo video, and slide deck.
+
+## Scope
+
+**In scope:** a single collateral type, a single debt type, one fixed 1.2 health-factor floor,
+proof-of-mechanism only.
+
+**Explicitly out of scope for Wave 1:** real oracle price feeds, a real money-market
+integration, multi-asset collateral, cross-chain anything. This is a proof-of-mechanism, not a
+production lending protocol.
+
+## License
+
+Apache License 2.0 — see [`LICENSE`](./LICENSE).
