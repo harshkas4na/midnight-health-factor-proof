@@ -1,0 +1,14 @@
+pragma language_version 0.23;
+
+// Health factor = collateral / debt. Safe threshold is HF >= 1.2.
+// Cross-multiplied to avoid fractional math: collateral * 10 >= debt * 12.
+// collateral and debt are circuit parameters, which are private by default
+// in Compact -- they are never written to public ledger state. Only the
+// derived boolean is disclosed.
+
+export ledger isSolvent: Boolean;
+
+export circuit proveSolvency(collateral: Uint<64>, debt: Uint<64>): [] {
+  const safe = collateral * 10 >= debt * 12;
+  isSolvent = disclose(safe);
+}

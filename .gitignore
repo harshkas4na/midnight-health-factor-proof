@@ -1,0 +1,9 @@
+/node_modules
+/contracts/managed
+/contracts/hello-world.compact
+/logs
+deployment.json
+/midnight-level-db
+/.midnight-expert
+.env.preview
+.env.preprod
