@@ -1,4 +1,4 @@
-// This file is part of example-hello-world.
+// Waits for DUST to become available on the configured wallet before deploying.
 // Copyright (C) Midnight Foundation
 // SPDX-License-Identifier: Apache-2.0
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,7 +26,7 @@ import { filter, take, tap, timeout } from 'rxjs/operators';
 import { getConfig } from '../src/config.js';
 import { MidnightWalletProvider, syncWallet } from '../src/wallet.js';
 
-// Must match src/test/hw.test.ts.
+// Must match src/test/health-factor.test.ts.
 const ALICE_SEED = '0000000000000000000000000000000000000000000000000000000000000001';
 
 const logger = pino({

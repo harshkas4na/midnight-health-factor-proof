@@ -19,7 +19,7 @@ import {
   syncWallet,
   type WalletSecret,
 } from '../wallet.js';
-import { buildProviders, type HelloWorldProviders } from '../providers.js';
+import { buildProviders, type HealthFactorProviders } from '../providers.js';
 import {
   CompiledHealthFactorContract,
   HealthFactorContract,
@@ -84,7 +84,7 @@ function resolveSecret(net: string): WalletSecret {
 
 describe(`Health Factor Contract (${network})`, () => {
   let wallet: MidnightWalletProvider;
-  let providers: HelloWorldProviders;
+  let providers: HealthFactorProviders;
   let contractAddress: ContractAddress;
 
   const config = getConfig();
@@ -95,7 +95,7 @@ describe(`Health Factor Contract (${network})`, () => {
       (isRemote ? 60 * 60_000 : 10 * 60_000),
   );
 
-  async function queryLedger(p: HelloWorldProviders) {
+  async function queryLedger(p: HealthFactorProviders) {
     const state = await p.publicDataProvider.queryContractState(contractAddress);
     expect(state).not.toBeNull();
     return healthFactorLedger(state!.data);
