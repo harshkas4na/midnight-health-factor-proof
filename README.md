@@ -97,14 +97,38 @@ contract instance; otherwise the app deploys a fresh instance on wallet connect.
 3. `cd frontend && yarn install && yarn build && yarn preview` — open the local preview URL,
    connect a Lace wallet, move the sliders, click "Prove Solvency," and watch the badge flip
    between SAFE and NOT SAFE based on the on-chain disclosed result.
+4. Optional, against the public testnet rather than a local chain: fund a wallet from the
+   Preview faucet, set `MIDNIGHT_PREVIEW_SEED` in `.env.preview`, then `yarn proof:up && yarn
+   test:preview`. Same 4 tests, real network. Allow ~7 minutes for the initial wallet resync
+   before the deploy starts.
 
 ## Progress during Wave 1
 
 Built in a single focused session on 2026-08-13 (Wave 1's opening day): toolchain install,
 `health-factor.compact` written and compiled, all 4 on-chain tests passing on local devnet, the
 Vite/React frontend with real Lace wallet integration, and this repository set up as a public,
-Apache 2.0-licensed, `midnightntwrk`-tagged project. Remaining before the Wave 1 deadline: public
-testnet deployment, demo video, and slide deck.
+Apache 2.0-licensed, `midnightntwrk`-tagged project.
+
+**2026-08-30: public testnet deployment confirmed.** The contract is deployed and all 4 tests
+pass against Midnight's **Preview public testnet**, not just the local devnet:
+
+```
+Contract address: 8df325592ecb958b3e295447359aea3f90419b553d4a4d4e17d60e19a3e40f0c
+Network:          preview
+Tests:            4 passed (safe · unsafe · exact-1.2 boundary · zero-debt)
+```
+
+Reproduce with `yarn proof:up && yarn test:preview`. Note that the first run against Preview
+does a full wallet resync (~7 minutes, ~176k blocks) before it deploys anything. It looks like
+a hang and is not one. Let it finish.
+
+Also cleaned up in this wave: the `hello-world` scaffold from the starter template has been
+removed. `contracts/index.ts` and `src/test/hw.test.ts` were tracked in this repo, but the
+`hello-world.compact` they depend on was gitignored and never pushed, so a fresh clone running
+`yarn test:local` hit an unresolved import before any real test ran. That is fixed; the suite is
+now 4 tests in 1 file and green from a clean clone.
+
+Remaining before the Wave 1 deadline: demo video and slide deck.
 
 ## Scope
 
