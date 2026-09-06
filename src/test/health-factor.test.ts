@@ -25,6 +25,9 @@ import {
   HealthFactorContract,
   healthFactorLedger,
   healthFactorZkConfigPath,
+  PROTOCOL_FLOOR_BPS,
+  secretKeyFromLabel,
+  type HealthFactorPrivateState,
 } from '../../contracts/health-factor-index.js';
 
 // Required for GraphQL subscriptions in Node.js
@@ -43,6 +46,18 @@ process.on('uncaughtException', (err) => {
 const ALICE_LOCAL_SEED =
   '0000000000000000000000000000000000000000000000000000000000000001';
 const PRIVATE_STATE_ID = 'AliceHealthFactorState';
+
+/**
+ * The prover's private state: position, their own risk policy, and the secret
+ * behind their on-chain pseudonym. Held by the private-state provider and read
+ * into the circuit through witnesses -- never sent anywhere.
+ */
+const aliceInitialState: HealthFactorPrivateState = {
+  collateral: 20n,
+  debt: 10n,
+  policyBps: 12_000n,
+  secretKey: secretKeyFromLabel('alice-health-factor-prover'),
+};
 
 const logger = pino({
   level: process.env['LOG_LEVEL'] ?? 'info',
@@ -147,10 +162,14 @@ describe(`Health Factor Contract (${network})`, () => {
       await (deployContract<HealthFactorContract>)(providers, {
         compiledContract: CompiledHealthFactorContract,
         privateStateId: PRIVATE_STATE_ID,
-        initialPrivateState: {},
+        initialPrivateState: aliceInitialState,
+        // The public protocol floor, written to public ledger state by the
+        // contract constructor.
+        args: [PROTOCOL_FLOOR_BPS],
       });
 
     contractAddress = deployed.deployTxData.public.contractAddress;
+    providers.privateStateProvider.setContractAddress(contractAddress);
     logger.info(`Health factor contract deployed at: ${contractAddress}`);
   });
 

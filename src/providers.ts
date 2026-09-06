@@ -6,7 +6,7 @@ import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-pri
 import { type MidnightWalletProvider } from './wallet.js';
 import { type NetworkConfig } from './config.js';
 
-export type HealthFactorCircuits = 'proveSolvency';
+export type HealthFactorCircuits = 'proveSolvency' | 'proveRiskBand';
 
 export type HealthFactorProviders = MidnightProviders<any>;
 

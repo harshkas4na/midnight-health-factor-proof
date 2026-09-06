@@ -1,13 +1,166 @@
 pragma language_version 0.23;
 
-// Health factor = collateral / debt. Safe threshold is HF >= 1.2.
-// Cross-multiplied to avoid fractional math: collateral * 10 >= debt * 12.
-// collateral and debt are circuit parameters, which are private by default
-// in Compact -- they are never written to public ledger state. Only the
-// derived boolean is disclosed.
+import CompactStandardLibrary;
 
+// ---------------------------------------------------------------------------
+// Private health-factor proofs with a private risk policy.
+//
+// Health factor = collateral / debt. A borrower wants to prove their position
+// is healthy without revealing the position -- and, more importantly, without
+// revealing *the threshold they hold themselves to*. A margin desk's own risk
+// floor is proprietary; publishing it tells the market exactly where they get
+// squeezed.
+//
+// Dual-ledger split used here:
+//
+//   PUBLIC ledger  -- the protocol's minimum acceptable floor, a running count
+//                     of proofs, the most recent disclosed band, a per-band
+//                     tally, and one attestation record per pseudonymous
+//                     prover. All of it is derived, none of it is the position.
+//
+//   PRIVATE state  -- collateral, debt, the prover's own (stricter) policy
+//                     threshold, and the secret key behind their pseudonym.
+//                     Read into the circuit through `witness` functions, held
+//                     locally by the private-state provider, and never written
+//                     to the chain in any form.
+//
+// The circuit proves, in zero knowledge:
+//   1. the prover's private policy is at least as strict as the public floor,
+//   2. which band their private position falls into relative to that policy,
+// and discloses only the band and a stable pseudonymous identity.
+// ---------------------------------------------------------------------------
+
+// Risk bands. Each is defined relative to the prover's own private policy
+// threshold T, so the verifier learns the shape of the position without ever
+// learning T or the amounts behind it.
+//
+//   0  LIQUIDATABLE  HF <  T                 below their own floor
+//   1  AT_RISK       T    <= HF < 1.25 * T   above the floor, thin
+//   2  SAFE          1.25 * T <= HF < 2 * T  comfortable
+//   3  FORTRESS      HF >= 2 * T             strongly over-collateralised
+//
+// A single boolean can only say "above the floor or not". A band says how much
+// headroom there is, which is what a counterparty actually wants, and it still
+// hides both the amounts and the threshold.
+
+// One row of the public attestation register. Neither field is a position.
+struct Attestation {
+  band: Uint<8>;
+  // Value of `proofCount` when this attestation was written, so the register
+  // records ordering without recording time or amounts.
+  sequence: Uint<64>;
+}
+
+// --- public ledger ---------------------------------------------------------
+
+// The protocol's minimum acceptable health-factor floor, in basis points
+// (12000 = HF 1.2). Public and fixed at deploy: it is what makes a private
+// policy meaningful. Without it, "I am above my own secret threshold" would be
+// vacuous, because the secret threshold could be zero. With it, the prover
+// shows their policy is *at least* this strict while keeping its exact value
+// private.
+export ledger policyFloorBps: Uint<64>;
+
+// Total number of accepted proofs across all provers.
+export ledger proofCount: Counter;
+
+// The band disclosed by the most recent proof.
+export ledger lastBand: Uint<8>;
+
+// How many proofs have landed in each band. Public risk statistics for the
+// whole population, built entirely from disclosed bands.
+export ledger bandTally: Map<Uint<8>, Counter>;
+
+// Latest attestation per pseudonymous prover. The key is a hash of a secret
+// key that never leaves private state, so the register is linkable over time
+// without being attributable to a wallet.
+export ledger attestations: Map<Bytes<32>, Attestation>;
+
+// Retained from the original circuit so `proveSolvency` keeps its meaning.
+// Also set by `proveRiskBand` (true whenever the band is 1 or better).
 export ledger isSolvent: Boolean;
 
+constructor(floorBps: Uint<64>) {
+  policyFloorBps = disclose(floorBps);
+  // Give every band a public row from block one, so the tally reads as a
+  // four-band histogram rather than a set that grows as bands are first hit.
+  bandTally.insertDefault(0);
+  bandTally.insertDefault(1);
+  bandTally.insertDefault(2);
+  bandTally.insertDefault(3);
+}
+
+// --- private state ---------------------------------------------------------
+
+// The borrower's position. Persisted locally by the private-state provider and
+// read fresh on every call, so a proof always reflects the current position
+// without the position ever being an argument anyone could observe.
+witness localPosition(): [Uint<64>, Uint<64>];
+
+// The borrower's own health-factor policy, in basis points. This is the field
+// that makes the product: the threshold itself is a secret, and only the fact
+// that it is at least as strict as the public floor is proven.
+witness localPolicyBps(): Uint<64>;
+
+// Secret behind the prover's public pseudonym.
+witness localSecretKey(): Bytes<32>;
+
+// --- circuits --------------------------------------------------------------
+
+// Domain-separated pseudonym. Publishing this links a prover's attestations to
+// each other and to nothing else.
+circuit proverIdentity(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "midnight:health-factor:prover"), sk]);
+}
+
+// Prove which band the private position falls into, relative to the private
+// policy, and record the result on the public ledger.
+export circuit proveRiskBand(): Uint<8> {
+  const position = localPosition();
+  const collateral = position[0];
+  const debt = position[1];
+  const policyBps = localPolicyBps();
+
+  // The one thing the public floor buys us: a private policy that cannot be
+  // laxer than the protocol's. Fails the proof rather than disclosing the
+  // policy.
+  assert(policyBps >= policyFloorBps, "private policy is laxer than the protocol floor");
+
+  // Cross-multiplied to stay in integer arithmetic. `scaled` is collateral at
+  // basis-point scale; `floor` is the collateral the policy demands for this
+  // debt. Compact widens on multiply, so none of these can overflow Uint<64>.
+  const scaled = collateral * 10000;
+  const floor = debt * policyBps;
+
+  const band =
+      (debt == 0)                        ? 3 as Uint<8>   // nothing owed
+    : (scaled >= floor * 2)              ? 3 as Uint<8>   // HF >= 2T
+    : (scaled * 100 >= floor * 125)      ? 2 as Uint<8>   // HF >= 1.25T
+    : (scaled >= floor)                  ? 1 as Uint<8>   // HF >= T
+    :                                      0 as Uint<8>;  // below T
+
+  // The single disclosure boundary for the band. Everything above this line is
+  // private; everything below it is public.
+  const disclosedBand = disclose(band);
+
+  lastBand = disclosedBand;
+  isSolvent = disclosedBand >= 1;
+  proofCount.increment(1);
+  bandTally.lookup(disclosedBand).increment(1);
+
+  // The pseudonym is the second and last disclosure: a hash of a witnessed
+  // secret, never the secret and never a wallet key.
+  const identity = disclose(proverIdentity(localSecretKey()));
+  attestations.insert(identity, Attestation { band: disclosedBand, sequence: proofCount });
+
+  return disclosedBand;
+}
+
+// Original Wave 1 circuit, kept unchanged so existing callers and the
+// frontend's SAFE/NOT SAFE badge keep working. Collateral and debt are circuit
+// parameters rather than private state, and the 1.2 threshold is fixed in
+// public source: `collateral * 10 >= debt * 12`. `proveRiskBand` above is the
+// version that fixes both of those.
 export circuit proveSolvency(collateral: Uint<64>, debt: Uint<64>): [] {
   const safe = collateral * 10 >= debt * 12;
   isSolvent = disclose(safe);
