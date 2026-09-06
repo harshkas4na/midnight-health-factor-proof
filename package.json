@@ -16,7 +16,7 @@
     "env:down": "docker compose down",
     "proof:up": "docker compose up -d --wait proof-server",
     "proof:down": "docker compose stop proof-server",
-    "wait:dust": "vite-node scripts/wait-for-dust.ts",
+    "wait:dust": "npx vite-node scripts/wait-for-dust.ts",
     "validate": "yarn env:up && yarn test:local; yarn env:down"
   },
   "dependencies": {

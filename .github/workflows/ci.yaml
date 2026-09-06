@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 permissions: {}
 
@@ -40,18 +40,6 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
-
-      - name: Generate contract source
-        run: |
-          cat > contracts/hello-world.compact <<'EOF'
-          pragma language_version 0.23;
-
-          export ledger message: Opaque<"string">;
-
-          export circuit storeMessage(newMessage: Opaque<"string">): [] {
-            message = disclose(newMessage);
-          }
-          EOF
 
       - name: Compile contract
         run: yarn compile
