@@ -122,10 +122,24 @@ button.primary:disabled {
   border: 1px solid #1e5c3d;
 }
 
+.badge.warn {
+  background: #3a3112;
+  color: #f2c14e;
+  border: 1px solid #5c4d1e;
+}
+
 .badge.unsafe {
   background: #3a1212;
   color: #ff6b6b;
   border: 1px solid #5c1e1e;
+}
+
+.badge-sub {
+  display: block;
+  margin-top: 0.35rem;
+  font-weight: 400;
+  font-size: 0.8rem;
+  opacity: 0.8;
 }
 
 footer {

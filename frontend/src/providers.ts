@@ -6,12 +6,18 @@ import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
-import { healthFactorZkConfigUrl, type HealthFactorContract } from './contract';
+import {
+  healthFactorZkConfigUrl,
+  type HealthFactorContract,
+  type HealthFactorPrivateState,
+} from './contract';
+
+export type HealthFactorCircuits = 'proveSolvency' | 'proveRiskBand';
 
 export type HealthFactorProviders = MidnightProviders<
-  'proveSolvency',
+  HealthFactorCircuits,
   'HealthFactorPrivateState',
-  Record<string, never>
+  HealthFactorPrivateState
 >;
 
 export async function buildProviders(
@@ -24,17 +30,17 @@ export async function buildProviders(
   const proverServerUri =
     config.proverServerUri ?? 'http://127.0.0.1:6300';
 
-  const zkConfigProvider = new FetchZkConfigProvider<'proveSolvency'>(
+  const zkConfigProvider = new FetchZkConfigProvider<HealthFactorCircuits>(
     healthFactorZkConfigUrl,
   );
 
   return {
-    // The contract has no real private state (collateral/debt are one-shot circuit
-    // params, never persisted) -- this store only backs midnight-js's bookkeeping
-    // (e.g. the maintenance-authority signing key created on deploy).
+    // Browser-local store (level over IndexedDB) holding the position, the
+    // user's own policy threshold and their pseudonym secret. The circuits read
+    // these back through witnesses; none of it is ever part of a transaction.
     privateStateProvider: levelPrivateStateProvider<
       'HealthFactorPrivateState',
-      Record<string, never>
+      HealthFactorPrivateState
     >({
       privateStateStoreName: 'health-factor-private-state',
       accountId: shieldedCoinPublicKey,

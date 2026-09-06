@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import {
   deployContract,
@@ -10,7 +10,17 @@ import {
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import { connectToWallet } from './wallet';
 import { buildProviders, type HealthFactorProviders } from './providers';
-import { CompiledHealthFactorContract, type HealthFactorContract } from './contract';
+import {
+  CompiledHealthFactorContract,
+  healthFactorLedger,
+  PROTOCOL_FLOOR_BPS,
+  RISK_BAND_BLURBS,
+  RISK_BAND_LABELS,
+  expectedBand,
+  randomSecretKey,
+  type HealthFactorContract,
+  type HealthFactorPrivateState,
+} from './contract';
 import './App.css';
 
 const NETWORK_ID = import.meta.env.VITE_NETWORK_ID ?? 'undeployed';
@@ -19,7 +29,8 @@ const EXISTING_CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS as
   | undefined;
 const PRIVATE_STATE_ID = 'HealthFactorPrivateState';
 
-type Solvency = 'unknown' | 'safe' | 'unsafe';
+const bandClass = (band: bigint): string =>
+  band >= 2n ? 'safe' : band === 1n ? 'warn' : 'unsafe';
 
 function App() {
   const [connectedAPI, setConnectedAPI] = useState<ConnectedAPI | null>(null);
@@ -28,12 +39,33 @@ function App() {
   const [contractAddress, setContractAddress] = useState<string | null>(null);
   const [collateral, setCollateral] = useState(20);
   const [debt, setDebt] = useState(10);
-  const [solvency, setSolvency] = useState<Solvency>('unknown');
+  // The user's own health-factor policy. This is the number the whole design
+  // exists to keep private: it stays in local private state, and the circuit
+  // only proves it is at least as strict as the public protocol floor.
+  const [policy, setPolicy] = useState(1.2);
+  const [band, setBand] = useState<bigint | null>(null);
+  const [proofCount, setProofCount] = useState<bigint | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const healthFactor = debt === 0 ? Infinity : collateral / debt;
+  const policyBps = BigInt(Math.round(policy * 10_000));
+
+  const privateState: HealthFactorPrivateState = useMemo(
+    () => ({
+      collateral: BigInt(collateral),
+      debt: BigInt(debt),
+      policyBps,
+      secretKey: randomSecretKey(),
+    }),
+    // A fresh pseudonym per position change keeps the demo unlinkable; a real
+    // wallet would persist one secret and reuse it.
+    [collateral, debt, policyBps],
+  );
+
+  const predictedBand = useMemo(() => expectedBand(privateState), [privateState]);
+  const policyTooLax = policyBps < PROTOCOL_FLOOR_BPS;
 
   const connect = useCallback(async () => {
     setError(null);
@@ -51,6 +83,13 @@ function App() {
           : 'Deploying the health-factor contract to the network...',
       );
 
+      const initialPrivateState: HealthFactorPrivateState = {
+        collateral: BigInt(collateral),
+        debt: BigInt(debt),
+        policyBps,
+        secretKey: randomSecretKey(),
+      };
+
       let deployedAddress: string;
       if (EXISTING_CONTRACT_ADDRESS) {
         const found: FoundContract<HealthFactorContract> =
@@ -58,7 +97,7 @@ function App() {
             contractAddress: EXISTING_CONTRACT_ADDRESS,
             compiledContract: CompiledHealthFactorContract,
             privateStateId: PRIVATE_STATE_ID,
-            initialPrivateState: {},
+            initialPrivateState,
           });
         deployedAddress = found.deployTxData.public.contractAddress;
       } else {
@@ -66,10 +105,14 @@ function App() {
           await (deployContract<HealthFactorContract>)(p, {
             compiledContract: CompiledHealthFactorContract,
             privateStateId: PRIVATE_STATE_ID,
-            initialPrivateState: {},
+            initialPrivateState,
+            // The public protocol floor, written to ledger state at deploy.
+            args: [PROTOCOL_FLOOR_BPS],
           });
         deployedAddress = deployed.deployTxData.public.contractAddress;
       }
+
+      p.privateStateProvider.setContractAddress(deployedAddress);
 
       setConnectedAPI(api);
       setAddress(unshieldedAddress);
@@ -82,27 +125,33 @@ function App() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [collateral, debt, policyBps]);
 
-  const proveSolvency = useCallback(async () => {
+  const proveRiskBand = useCallback(async () => {
     if (!providers || !contractAddress) return;
     setError(null);
     setBusy(true);
-    setStatus('Generating proof and submitting to the network...');
+    setStatus('Writing private state, generating proof, submitting...');
     try {
-      await submitCallTx<HealthFactorContract, 'proveSolvency'>(providers, {
+      // Position and policy go into local private state. The circuit call
+      // below passes no arguments at all -- it reads them back through
+      // witnesses, so neither number is ever part of the transaction.
+      await providers.privateStateProvider.set(PRIVATE_STATE_ID, privateState);
+
+      await submitCallTx<HealthFactorContract, 'proveRiskBand'>(providers, {
         compiledContract: CompiledHealthFactorContract,
         contractAddress,
         privateStateId: PRIVATE_STATE_ID,
-        circuitId: 'proveSolvency',
-        args: [BigInt(collateral), BigInt(debt)],
+        circuitId: 'proveRiskBand',
       });
 
       const state = await providers.publicDataProvider.queryContractState(
         contractAddress,
       );
-      const isSolvent = Boolean((state?.data as { isSolvent?: boolean })?.isSolvent);
-      setSolvency(isSolvent ? 'safe' : 'unsafe');
+      if (!state) throw new Error('Contract state not found on the indexer.');
+      const ledger = healthFactorLedger(state.data);
+      setBand(ledger.lastBand);
+      setProofCount(ledger.proofCount);
       setStatus(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -110,15 +159,16 @@ function App() {
     } finally {
       setBusy(false);
     }
-  }, [providers, contractAddress, collateral, debt]);
+  }, [providers, contractAddress, privateState]);
 
   return (
     <div className="app">
       <header>
         <h1>Private Health-Factor Proof</h1>
         <p className="tagline">
-          Prove a lending position is solvent (HF &ge; 1.2) without ever disclosing
-          collateral or debt. Built on Midnight (Compact) for the 1st Buildathon.
+          Prove where a lending position sits relative to your own risk policy,
+          without disclosing the position <em>or</em> the policy. Built on
+          Midnight (Compact) for the 1st Buildathon.
         </p>
       </header>
 
@@ -132,6 +182,12 @@ function App() {
           Connected: {address?.slice(0, 10)}...{address?.slice(-6)}
           <br />
           Contract: {contractAddress?.slice(0, 10)}...{contractAddress?.slice(-6)}
+          {proofCount !== null && (
+            <>
+              <br />
+              Proofs recorded on the public ledger: {proofCount.toString()}
+            </>
+          )}
         </div>
       )}
 
@@ -161,32 +217,55 @@ function App() {
             onChange={(e) => setDebt(Number(e.target.value))}
           />
         </label>
+        <label>
+          Your private policy: HF &ge; {policy.toFixed(1)}
+          <input
+            type="range"
+            min={1.0}
+            max={4.0}
+            step={0.1}
+            value={policy}
+            disabled={!contractAddress || busy}
+            onChange={(e) => setPolicy(Number(e.target.value))}
+          />
+        </label>
 
         <p className="hf-preview">
-          Health factor (local, never sent as-is):{' '}
+          Health factor (local, never sent):{' '}
           {healthFactor === Infinity ? '∞' : healthFactor.toFixed(2)}
+          {' · '}
+          predicted band: {RISK_BAND_LABELS[predictedBand.toString()]}
         </p>
+
+        {policyTooLax && (
+          <p className="error">
+            The public protocol floor is HF 1.2. A policy laxer than that fails
+            the assert inside the circuit, so no proof is produced.
+          </p>
+        )}
 
         <button
           className="primary"
-          onClick={proveSolvency}
+          onClick={proveRiskBand}
           disabled={!contractAddress || busy}
         >
-          {busy ? 'Proving...' : 'Prove Solvency'}
+          {busy ? 'Proving...' : 'Prove Risk Band'}
         </button>
 
-        {solvency !== 'unknown' && (
-          <div className={`badge ${solvency}`}>
-            {solvency === 'safe'
-              ? 'Health Factor ≥ 1.2 — SAFE'
-              : 'Health Factor < 1.2 — NOT SAFE'}
+        {band !== null && (
+          <div className={`badge ${bandClass(band)}`}>
+            {RISK_BAND_LABELS[band.toString()]}
+            <span className="badge-sub">
+              {RISK_BAND_BLURBS[band.toString()]}
+            </span>
           </div>
         )}
       </section>
 
       <footer>
-        Collateral and debt are private circuit parameters &mdash; only the
-        boolean result above is ever written on-chain.
+        Collateral, debt and your policy threshold live in local private state
+        and are read by the circuit through witnesses. Only the band and a
+        pseudonymous attestation are ever written on-chain.
       </footer>
     </div>
   );
