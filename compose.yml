@@ -36,6 +36,13 @@ services:
     depends_on:
       node:
         condition: service_healthy
+    # The node's healthcheck passes at block height 0, but the indexer's spo-indexer
+    # immediately asks for block 1 and exits(1) with "Cannot construct OnlineClientAtBlock:
+    # block number 1 not found" if the chain has not produced one yet. depends_on cannot
+    # express "healthy AND past genesis", so let it retry instead. Whether this races
+    # depends purely on how fast the host is: it never fired locally and failed on the
+    # first GitHub runner, which means a judge cloning the repo could hit it too.
+    restart: on-failure
 
   node:
     image: 'midnightntwrk/midnight-node:1.0.0'
