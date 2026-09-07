@@ -226,19 +226,25 @@ contract instance; otherwise the app deploys a fresh instance on wallet connect.
 
 ## Deployment status
 
-The Preview public testnet deployment recorded on 2026-08-30 was of the **pre-wave** circuit:
+The Wave 1 circuit is deployed and green on the Preview public testnet:
 
 ```
-Contract address: 8df325592ecb958b3e295447359aea3f90419b553d4a4d4e17d60e19a3e40f0c
+Contract address: 6105510469db1af533fb64c307fd1f810644bd09fd28d38a9489c791e03aefe8
 Network:          preview
+Deployed:         2026-09-07
+Verification:     16/16 tests pass against this deployment
 ```
 
-That address still holds the old two-field contract. The Wave 1 circuit has a different verifier
-key and different ledger layout, so it needs a **fresh deploy** to Preview — an existing contract
-address cannot be upgraded into it. Reproduce with `yarn proof:up && yarn test:preview`, which
-deploys a new instance and runs all 16 tests against it. Note that the first run against Preview
-does a full wallet resync (~7 minutes) before it deploys anything. It looks like a hang and is
-not one. Let it finish.
+**Use this address, not the one from 2026-08-30.** That earlier deployment
+(`8df325592ecb958b3e295447359aea3f90419b553d4a4d4e17d60e19a3e40f0c`) was of the pre-wave
+twelve-line circuit and still holds it. The Wave 1 circuit has a different verifier key and a
+different ledger layout, so it could not be upgraded in place and needed a fresh deploy.
+
+Reproduce with `yarn proof:up && yarn test:preview`, which deploys a new instance and runs all
+16 tests against it. Budget the sync: the run on 2026-09-07 resynced ~205,000 blocks and took
+about twelve minutes before deploying anything. **It looks like a hang and is not one.** An
+earlier attempt on 2026-08-13 was abandoned as "indexer flakiness" when it was simply not
+finished. Let it run.
 
 ## Scope
 
